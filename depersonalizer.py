@@ -1,20 +1,19 @@
-#!/usr/bin/env python3
 """
-Depersonalizer — деперсонализатор чувствительных данных (PII).
+Depersonalizer (PII).
 
-Алгоритмы:  NER (Natasha + Presidio/spaCy/stanza), Regex,
-            K-анонимность, Дифференциальная приватность (Лаплас).
-Форматы:    PDF (pymupdf/fitz), DOCX (python-docx), TXT/plain.
+ALgorithms:  NER (Natasha + Presidio/spaCy/stanza), Regex,
+            K-anonymity, Differential privacy (Laplas).
+Formats:    PDF (pymupdf/fitz), DOCX (python-docx), TXT/plain.
 
-Установка:
+Deploy:
     pip install -r requirements.txt
     python -m spacy download ru_core_news_sm
     python -m spacy download en_core_web_sm
-    # stanza (опционально):
+    # stanza (optional):
     python -c "import stanza; stanza.download('ru')"
 
-Пайплайн:
-    Extract → Detect (ансамбль Regex+NER) → Anonymize → Rebuild
+Pipeline:
+    Extract -> Detect (assambly Regex+NER) -> Anonymize -> Rebuild
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from typing import Any, Iterator
 import numpy as np
 
 # ──────────────────────────────────────────────────────────────
-# Опциональные зависимости — graceful degradation
+# Optional dependecies — graceful degradation
 # ──────────────────────────────────────────────────────────────
 try:
     from natasha import Doc as NatashaDoc
@@ -81,10 +80,10 @@ import re
 
 
 # ══════════════════════════════════════════════════════════════
-# § 1.  ДАННЫЕ И КОНСТАНТЫ
+# 1.  ДАННЫЕ И КОНСТАНТЫ
 # ══════════════════════════════════════════════════════════════
 
-# Маппинг типов сущностей → рус. метки для плейсхолдеров
+# Маппинг типов сущностей -> рус. метки для плейсхолдеров
 ENTITY_LABEL_RU: dict[str, str] = {
     "PER":           "ФИО",
     "PERSON":        "ФИО",
@@ -103,22 +102,47 @@ ENTITY_LABEL_RU: dict[str, str] = {
     "DATE":          "ДАТА",
     "AGE":           "ВОЗРАСТ",
     "CREDIT_CARD":   "КАРТА",
-    "IBAN_CODE":     "IBAN",
-    "IP_ADDRESS":    "IP",
-    "URL":           "URL",
+    "IBAN_CODE":        "IBAN",
+    "IP_ADDRESS":       "IP",
+    "URL":              "URL",
+    "DOCUMENT_NUMBER":  "ДОКУМЕНТ_№",
 }
+
+# Месяцы для regex дат прописью
+_MONTHS_RU = (
+    "января|февраля|марта|апреля|мая|июня|"
+    "июля|августа|сентября|октября|ноября|декабря"
+)
 
 # Regex-паттерны для российских PII (специфичность убывает сверху вниз)
 _RU_REGEX_PATTERNS: list[tuple[str, str]] = [
-    # СНИЛС: 123-456-789 01 | 123 456 789 01
+    # Адрес после «по адресу:» — до «;» или конца строки
+    ("LOCATION",
+     r"(?:зарегистрированн(?:ый|ая|ое|ую)\s+по\s+адресу\s*:\s*)"
+     r"([^;\n]+)"),
+    # Адрес в формате «ул./пр./пер. Название, дом X, ...кв. Y»
+    ("LOCATION",
+     r"(?:ул\.|пр\.|пер\.|просп\.|бул\.|наб\.|ш\.)\s*[А-ЯЁа-яё\w\s\-]+,"
+     r"\s*(?:дом|д\.)\s*\d[\d\w\s,./лит корпАа-яё]*?(?:кв\.\s*\d+)"),
+    # СНИЛС: 123-456-789 01 | 123 456 789 01 | 018-070-39 (сокращённый)
     ("SNILS",
-     r"\b\d{3}[-\s]\d{3}[-\s]\d{3}[-\s]\d{2}\b"),
+     r"\b\d{3}[-\s]\d{3}[-\s]\d{2,3}(?:[-\s]\d{2})?\b"),
     # ИНН: 10 (юр. лицо) или 12 цифр (физ. лицо)
     ("INN",
      r"(?i)(?:инн\s*:?\s*)?\b\d{10}(?:\d{2})?\b"),
     # Серия + номер паспорта РФ: 4510 123456 | 45 10 123456
     ("PASSPORT",
      r"\b\d{4}\s\d{6}\b|\b\d{2}\s\d{2}\s\d{6}\b"),
+    # Код подразделения: 780-189
+    ("PASSPORT",
+     r"(?:код\s+подразделения\s*)(\d{3}[-‐]\d{3})"),
+    # «выдан ... отделом/отделением/управлением ...» — контекст выдачи документа
+    ("LOCATION",
+     r"(?:выдан[а]?\s+)(\d{1,3}\s+)?(?:отдел(?:ом|ением)?|управлением|ГУ|ОУФМС|УФМС|ТП)\s+"
+     r"[^,;.\n]{5,80}"),
+    # Номер доверенности / реестровый номер: 78/670-н/78-2025-4-392
+    ("DOCUMENT_NUMBER",
+     r"\b(\d{1,4}/\d[\d\w\-/нН]+)"),
     # Банковская карта (4 группы по 4 цифры)
     ("CREDIT_CARD",
      r"\b(?:\d{4}[\s\-]){3}\d{4}\b"),
@@ -131,6 +155,9 @@ _RU_REGEX_PATTERNS: list[tuple[str, str]] = [
     # URL (до email-пат., чтобы домены не мешали)
     ("URL",
      r"https?://[^\s\"'<>]+"),
+    # Дата прописью: «12 мая 1959 года» | «12 мая 1959 г.»
+    ("DATE_TIME",
+     r"\b\d{1,2}\s+(?:" + _MONTHS_RU + r")\s+\d{4}\s*(?:г(?:ода|\.)?)?"),
     # Дата: DD.MM.YYYY | DD/MM/YYYY | YYYY-MM-DD
     ("DATE_TIME",
      r"\b(?:\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})\b"),
@@ -140,6 +167,13 @@ _RU_REGEX_PATTERNS: list[tuple[str, str]] = [
     # IBAN
     ("IBAN_CODE",
      r"\b[A-Z]{2}\d{2}[A-Z0-9]{4,30}\b"),
+    # Русские отчества: Николаевна, Александрович, и т.п.
+    ("PERSON",
+     r"\b[А-ЯЁ][а-яё]+(?:ович|евич|ич|овна|евна|ична|инична)\b"),
+    # Русские/украинские фамилии (типичные суффиксы) перед именем/отчеством
+    ("PERSON",
+     r"\b[А-ЯЁ][а-яё]+(?:ов|ев|ёв|ин|ын|ский|ская|цкий|цкая|ова|ева|ёва|ина|ына|енко|ейко|юк|чук)"
+     r"(?:\s+[А-ЯЁ][а-яё]+){1,2}\b"),
 ]
 
 
@@ -158,7 +192,7 @@ class PIIMatch:
 
 
 # ══════════════════════════════════════════════════════════════
-# § 2.  ТРЕКЕР СУЩНОСТЕЙ  (последовательные ID)
+# 2.  ТРЕКЕР СУЩНОСТЕЙ  (последовательные ID)
 # ══════════════════════════════════════════════════════════════
 
 class EntityTracker:
@@ -204,11 +238,18 @@ class RegexDetector:
         matches: list[PIIMatch] = []
         for entity_type, rx in self._compiled:
             for m in rx.finditer(text):
+                # Если есть группа захвата — используем её (контекст не заменяется)
+                if m.lastindex:
+                    start, end = m.start(m.lastindex), m.end(m.lastindex)
+                    original = m.group(m.lastindex)
+                else:
+                    start, end = m.start(), m.end()
+                    original = m.group()
                 matches.append(PIIMatch(
-                    start=m.start(),
-                    end=m.end(),
+                    start=start,
+                    end=end,
                     entity_type=entity_type,
-                    original_text=m.group(),
+                    original_text=original,
                     confidence=0.95,
                     source="regex",
                 ))
@@ -677,9 +718,37 @@ class Depersonalizer:
     # ── Public API ──────────────────────────────────────────
 
     def anonymize_text(self, text: str) -> str:
-        """Detect + Anonymize для произвольной строки."""
+        """Detect + Anonymize для произвольной строки.
+
+        Двухпроходная стратегия: после основной детекции ищем оставшиеся
+        фрагменты найденных имён (фамилии без имени/отчества и т.п.).
+        """
         matches = self.detector.detect(text)
-        return self.anonymizer.anonymize(text, matches)
+        # Собираем слова из найденных PER/PERSON-сущностей для второго прохода
+        name_words = {
+            word
+            for m in matches if m.entity_type in ("PER", "PERSON")
+            for word in m.original_text.split()
+            if len(word) >= 3  # пропускаем инициалы
+        }
+        # Первый проход анонимизации
+        text = self.anonymizer.anonymize(text, matches)
+        # Второй проход: ищем оставшиеся фрагменты имён
+        if name_words:
+            extra = [
+                PIIMatch(
+                    start=m.start(), end=m.end(),
+                    entity_type="PERSON",
+                    original_text=word,
+                    confidence=0.80,
+                    source="name_propagation",
+                )
+                for word in name_words
+                for m in re.finditer(re.escape(word), text)
+            ]
+            if extra:
+                text = self.anonymizer.anonymize(text, extra)
+        return text
 
     def anonymize_file(
         self,
@@ -695,7 +764,7 @@ class Depersonalizer:
         output_path = Path(output_path) if output_path else self._default_output(input_path)
         suffix = input_path.suffix.lower()
 
-        if suffix == ".txt":
+        if suffix in (".txt", ".md", ".csv", ".log"):
             raw  = input_path.read_text(encoding="utf-8")
             anon = self.anonymize_text(raw)
             output_path.write_text(anon, encoding="utf-8")
@@ -731,3 +800,76 @@ class Depersonalizer:
     @staticmethod
     def _default_output(p: Path) -> Path:
         return p.parent / f"{p.stem}_anonymized{p.suffix}"
+
+
+# ══════════════════════════════════════════════════════════════
+# § 10. CLI
+# ══════════════════════════════════════════════════════════════
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Деперсонализация PII в текстовых файлах (PDF, DOCX, TXT).",
+    )
+    parser.add_argument(
+        "file",
+        type=Path,
+        help="Путь к файлу для обработки (.txt, .pdf, .docx)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=None,
+        help="Путь к выходному файлу (по умолчанию: <имя>_anonymized.<ext>)",
+    )
+    parser.add_argument(
+        "-m", "--mode",
+        choices=["placeholder", "hash", "mask"],
+        default="placeholder",
+        help="Режим анонимизации (по умолчанию: placeholder)",
+    )
+    parser.add_argument(
+        "--no-natasha", action="store_true",
+        help="Отключить Natasha NER",
+    )
+    parser.add_argument(
+        "--no-presidio", action="store_true",
+        help="Отключить Presidio NER",
+    )
+    parser.add_argument(
+        "--use-stanza", action="store_true",
+        help="Использовать Stanza вместо spaCy для Presidio",
+    )
+    parser.add_argument(
+        "--lang",
+        default="ru",
+        help="Язык текста (по умолчанию: ru)",
+    )
+
+    args = parser.parse_args()
+
+    if not args.file.exists():
+        parser.error(f"Файл не найден: {args.file}")
+
+    dp = Depersonalizer(
+        mode=args.mode,
+        use_natasha=not args.no_natasha,
+        use_presidio=not args.no_presidio,
+        use_stanza=args.use_stanza,
+        language=args.lang,
+    )
+
+    result = dp.anonymize_file(args.file, args.output)
+    report = dp.get_report()
+
+    print(f"Готово: {result}")
+    print(f"Найдено сущностей: {report['total_entities']}")
+    if report["mapping"]:
+        print("Замены:")
+        for original, placeholder in report["mapping"].items():
+            print(f"  {original!r} → {placeholder}")
+
+
+if __name__ == "__main__":
+    main()
