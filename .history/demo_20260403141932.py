@@ -14,6 +14,7 @@ from depersonalizer import (
     KAnonymityProcessor,
     _DOCX_OK,
     _NATASHA_OK,
+    _OPENPYXL_OK,
     _PANDAS_OK,
     _PRESIDIO_OK,
     _PYMUPDF_OK,
@@ -214,12 +215,15 @@ else:
 
 
 # ══════════════════════════════════════════════════════════════
-# 7. ФАЙЛОВЫЙ ПРОЦЕССИНГ (TXT + опционально PDF/DOCX)
+# 7. ФАЙЛОВЫЙ ПРОЦЕССИНГ (TXT + опционально PDF/DOCX/CSV/XLSX)
 # ══════════════════════════════════════════════════════════════
 section("7. ФАЙЛОВЫЙ ПРОЦЕССИНГ")
 
 import tempfile
 from pathlib import Path
+
+if _OPENPYXL_OK:
+    from openpyxl import load_workbook
 
 txt_content = (
     "Заявление от Иванова Ивана Ивановича.\n"
@@ -239,8 +243,44 @@ with tempfile.TemporaryDirectory() as tmpdir:
     print(f"\nTXT (ДО):\n{txt_content}")
     print(f"TXT (ПОСЛЕ):\n{out_txt.read_text(encoding='utf-8')}")
 
+    # CSV обработка
+    if _PANDAS_OK:
+        import pandas as pd
+        csv_content = "Имя,Телефон,Email\nИванов И.И.,+7-900-123-45-67,ivanov@example.com\nПетров П.П.,+7-916-111-22-33,petrov@mail.ru"
+        src_csv = tmp / "test_input.csv"
+        src_csv.write_text(csv_content, encoding="utf-8")
+        out_csv = dp_file.anonymize_file(src_csv)
+        print(f"\nCSV (ДО):\n{csv_content}")
+        print(f"CSV (ПОСЛЕ):\n{out_csv.read_text(encoding='utf-8')}")
+
+    # XLSX обработка
+    if _OPENPYXL_OK and _PANDAS_OK:
+        import pandas as pd
+        from openpyxl import Workbook
+        src_xlsx = tmp / "test_input.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Клиенты"
+        ws.append(["Имя", "Телефон", "Email"])
+        ws.append(["Иванов Иван Иванович", "+7-900-123-45-67", "ivan.ivanov@sber.ru"])
+        ws.append(["Петров Петр Петрович", "+7-916-111-22-33", "petrov@gmail.com"])
+        wb.save(src_xlsx)
+
+        dp_xlsx = Depersonalizer(mode="placeholder", use_natasha=False, use_presidio=False)
+        out_xlsx = dp_xlsx.anonymize_file(src_xlsx)
+
+        # Читаем результат для демонстрации
+        wb_result = load_workbook(out_xlsx, data_only=True)
+        ws_result = wb_result.active
+        print(f"\nXLSX (ПОСЛЕ):")
+        for row in ws_result.iter_rows(values_only=True):
+            print(f"  {row}")
+        wb_result.close()
+
 print(f"PDF-процессор:  {'✓ pymupdf установлен' if _PYMUPDF_OK else '✗ pip install pymupdf'}")
 print(f"DOCX-процессор: {'✓ python-docx установлен' if _DOCX_OK else '✗ pip install python-docx'}")
+print(f"XLSX-процессор: {'✓ openpyxl установлен' if _OPENPYXL_OK else '✗ pip install openpyxl'}")
+print(f"CSV-процессор:  {'✓ pandas установлен' if _PANDAS_OK else '✗ pip install pandas'}")
 
 print(f"\n{'═' * 60}")
 print("  ✓ Demo завершён.")

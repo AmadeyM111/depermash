@@ -1,0 +1,11 @@
+cache/document_cache/*.json
+cache/serp_cache/*.json
+.~lock*
+**/.ipynb_checkpoints/**
+**/__pycache__/**
+.gigaide/**
+.idea/**
+*.md
+.env
+
+

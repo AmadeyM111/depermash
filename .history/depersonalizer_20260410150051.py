@@ -596,7 +596,7 @@ class PDFProcessor:
     Extract/Rebuild для PDF через pymupdf (fitz).
 
     Rebuild: физическое зачернение + вставка текста-плейсхолдера
-             через page.add_redact_annot(fill_text=...).
+             через page.add_redact_annot(fill_text=…).
     """
 
     def __init__(self) -> None:

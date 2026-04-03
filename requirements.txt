@@ -22,3 +22,15 @@ python-docx>=1.1   # DOCX
 
 # ── Tabular data (K-anonymity / DP) ─────────
 pandas>=2.2
+openpyxl>=3.1      # XLSX
+
+# ── Image processing (OCR) ───────────────────
+Pillow>=10.0       # Работа с изображениями
+pytesseract>=0.3   # Tesseract OCR wrapper
+# Системная зависимость: tesseract-ocr
+# Ubuntu/Debian: sudo apt-get install tesseract-ocr tesseract-ocr-rus
+# macOS: brew install tesseract tesseract-lang
+# Windows: скачать установщик с https://github.com/UB-Mannheim/tesseract/wiki
+
+# ── CSV encoding detection (optional) ─────────
+chardet>=5.0       # Автоопределение кодировки CSV
