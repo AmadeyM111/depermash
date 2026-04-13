@@ -8,4 +8,4 @@ cache/serp_cache/*.json
 *.md
 .env
 .venv
-
+.history/**
