@@ -9,3 +9,5 @@ cache/serp_cache/*.json
 .env
 .venv
 .history/**
+
+!README.md
