@@ -12,5 +12,6 @@ cache/serp_cache/*.json
 venv
 .history/**
 *.json
+!PII_list.md
 
 !README.md

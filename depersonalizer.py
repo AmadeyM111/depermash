@@ -125,6 +125,27 @@ ENTITY_LABEL_RU: dict[str, str] = {
     "IP_ADDRESS":       "IP",
     "URL":              "URL",
     "DOCUMENT_NUMBER":  "ДОКУМЕНТ_№",
+    "USER_ID":          "ID_ПОЛЬЗОВАТЕЛЯ",
+    "CLIENT_ID":        "ID_КЛИЕНТА",
+    # Специальные категории (ст. 10 ФЗ-152)
+    "HEALTH":           "ЗДОРОВЬЕ",
+    "CRIMINAL":         "СУДИМОСТЬ",
+    "RELIGION":         "РЕЛИГИЯ",
+    "POLITICS":         "ПОЛИТИКА",
+    "NATIONALITY":      "НАЦИОНАЛЬНОСТЬ",
+    # Банковская тайна
+    "INCOME":           "ДОХОД",
+    "CREDIT_HISTORY":   "КРЕДИТНАЯ_ИСТОРИЯ",
+    "TRANSACTION_ID":   "ID_СДЕЛКИ",
+    "ACCOUNT":          "СЧЕТ",
+    # Биометрия
+    "BIOMETRIC":        "БИОМЕТРИЯ",
+    "FILE_PHOTO":       "ФОТО",
+    "FILE_VOICE":       "ГОЛОС",
+    # Дополнительные документы
+    "DRIVER_LICENSE":   "ВОДИТЕЛЬСКОЕ_УДОСТОВЕРЕНИЕ",
+    "MILITARY_ID":      "ВОЕННЫЙ_БИЛЕТ",
+    "INSURANCE_POLICY": "ПОЛИС",
 }
 
 # Месяцы для regex дат прописью
@@ -180,6 +201,12 @@ _RU_REGEX_PATTERNS: list[tuple[str, str]] = [
     # Дата: DD.MM.YYYY | DD/MM/YYYY | YYYY-MM-DD
     ("DATE_TIME",
      r"\b(?:\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})\b"),
+    # Дата/время ISO 8601: 2026-04-12T15:20:00
+    ("DATE_TIME",
+     r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b"),
+    # ID пользователя/клиента: "user_id": 6192 (JSON формат)
+    ("USER_ID",
+     r'(?:user_id|client_id)\s*:\s*(\d{4,})'),
     # IP-адрес v4
     ("IP_ADDRESS",
      r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
@@ -193,6 +220,119 @@ _RU_REGEX_PATTERNS: list[tuple[str, str]] = [
     ("PERSON",
      r"\b[А-ЯЁ][а-яё]+(?:ов|ев|ёв|ин|ын|ский|ская|цкий|цкая|ова|ева|ёва|ина|ына|енко|ейко|юк|чук)"
      r"(?:\s+[А-ЯЁ][а-яё]+){1,2}\b"),
+
+    # ──────────────────────────────────────────────────────────────
+    # Специальные категории (ст. 10 ФЗ-152)
+    # ──────────────────────────────────────────────────────────────
+
+    # Здоровье: диагнозы, болезни, инвалидность
+    ("HEALTH",
+     r"(?i)(?:диагноз?:?\s*[:\"]?\s*|(?:сахарный\s+)?диабет|инвалидность|онколог|гипертония|астма|вирус\s*\w*|заболевание)"
+     r"|(?:группа\s+инвалидности|класс\s+фк|инфаркт|инсульт)"),
+
+    # Судимость: упоминания УК РФ, судимости, статей
+    ("CRIMINAL",
+     r"(?i)(?:судимость|(?:имееется\s+)?(?:уголовная\s+)?ответственность|осужден"
+     r"|\s(?:ст\.|статья\s*)\s*\d+\s+УК\s*РФ|привлечение\s+к\s+ответственности"
+     r"|(?:уголовное\s+)?дело|суд(?:имость)?\s*(?:за|от|в)?)"),
+
+    # Религия: упоминания религий, конфессий
+    ("RELIGION",
+     r"(?i)(?:православн(?:ый|ая|ое)|мусульманин(?:ский|ка)?|католик|протестант|иудей|буддист"
+     r"|мусульманский|христианск(?:ий|ая)|атеист|религиозн(?:ый|ая|ое)"
+     r"|(?:прихожанин|член)\s+(?:церкви|храма|мечети|синагоги))"),
+
+    # Политика: партии, политические взгляды
+    ("POLITICS",
+     r"(?i)(?:член\s+партии|партия\s+|(?:политические)?\s*взгляды"
+     r"|(?:КПРФ|LDPR|Справедливая\s+Россия|Единая\s+Россия|Яблоко)"
+     r"|(?:депутат|активист|протестовавший?))"),
+
+    # Национальность: упоминания национальностей, народностей
+    ("NATIONALITY",
+     r"(?i)(?:русск(?:ий|ая|кое)|украинск(?:ий|ая|кое)|белорус|казах|татарин|армян(?:ин|е)"
+     r"|(?:национальность|этнос|народность)\s*[:\"]?\s*[А-ЯЁа-яё\-]+)"),
+
+    # ──────────────────────────────────────────────────────────────
+    # Банковская тайна
+    # ──────────────────────────────────────────────────────────────
+
+    # Доходы, зарплаты, налоги
+    ("INCOME",
+     r"(?i)(?:доход(?:ы|ах)?|зарплата|заработн(?:ая|ой)\s+плата"
+     r"|недвижимость|недвиж(?:имое)?|капитал|сбережения|активы)"
+     r"|(?:НДФЛ|НДС|налог)\s*(?:\:|\"|]|\s+)\s*\d{3,}"),
+
+    # Кредитная история: просрочки, долги
+    ("CREDIT_HISTORY",
+     r"(?i)(?:кредитн(?:ая|ой)?\s+истор(?:ия|ии)?|просрочк(?:а|и)?|задолженност(?:ь|и)"
+     r"|долгов(?:ая|ой)?\s+нагрузк(?:а|и)?|кредитный\s+рейтинг"
+     r"|(?:плохая|хорошая)\s+кредитн(?:ая|ая)\s+истор(?:ия|ии)?)"),
+
+    # ID сделок, УИд, QR-коды
+    ("TRANSACTION_ID",
+     r"(?i)(?:уид\s+сделки|ид\s+сделки|qr[-\s]*код|штрих[-\s]*код"
+     r"|(?:уникальный\s+)?идентификатор\s+сделки"
+     r"|qr[-:\s]*\d{4,}[-:\s]*\d{4,})"),
+
+    # Банковские счета: российский формат (20 цифр, начинается с 40817...)
+    ("ACCOUNT",
+     r"\b(?:40817\d{13}|\\d{20})\b"),
+
+    # Пароли, ключи (для банковской безопасности)
+    ("ACCOUNT",  # Используем ACCOUNT вместо PASSWORD для простоты
+     r"(?i)(?:пароль|ключ|пин-код|код\s+подтверждения)\s*[:\"]?\s*\S+"),
+
+    # ──────────────────────────────────────────────────────────────
+    # Биометрия
+    # ──────────────────────────────────────────────────────────────
+
+    # Фотографии: упоминания файлов изображений
+    ("FILE_PHOTO",
+     r"(?i)(?:фотограф(?:ия|ии)? из?\s*(?:паспорта|анкеты|документа)"
+     r"|(?:scan|скан)\s*(?:страницы?|стр\.?\s*\d+)"
+     r"|photo[-_\s]*\d+|фото[-_\s]*страница[-_\s]*\d+)"),
+
+    # Записи голоса, аудиофайлы
+    ("FILE_VOICE",
+     r"(?i)(?:запись\s+голоса|аудиозапись|голосовое\s+сообщение"
+     r"|call[-_\s]*recording|录音|voice[-_\s]*note"
+     r"|\.(?:mp3|wav|ogg|m4a)(?:\?|\s|$))"),
+
+    # ДНК, биометрические данные
+    ("BIOMETRIC",
+     r"(?i)(?:днк[-_\s]?профиль|биометрически(?:ий|ая|ое)?\s*данные"
+     r"|радужн(?:ая|ой)?\s+глаз(?:а)?|отпечаток\s+пальц(?:а|ев)?"
+     r"|iris[-_\s]scan|fingerprint[-_\s]scan)"),
+
+    # ──────────────────────────────────────────────────────────────
+    # Дополнительные документы
+    # ──────────────────────────────────────────────────────────────
+
+    # Водительское удостоверение
+    ("DRIVER_LICENSE",
+     r"(?i)(?:водительск(?:ое|ая|ое)?\s+удостоверени(?:е|я|ия)?"
+     r"|прав(?:а|ах)?\s+(?:на\s+управление|водительск)"
+     r"|(?:д(?:р)?\s*)?[А-ЯЁA-Z]{2}\s*\d{3,6})"),
+
+    # Военный билет
+    ("MILITARY_ID",
+     r"(?i)(?:военн(?:ый|ая|ое)?\s+билет(?:у|е|ы)?"
+     r"|мк[-_\s]?\d{5,}|учетн(?:ый|ая|ое)?\s+(?:военн(?:ый|ая)?)?\s*документ)"),
+
+    # Полисы ОМС/ДМС
+    ("INSURANCE_POLICY",
+     r"(?i)(?:полис(?:\s+(?:омс|дмс|медицинск|страхов))?"
+     r"|страхов(?:ое|ой|ая|ые)?\s+полис"
+     r"|медицинск(?:ая|ое|ие)?\s+страховк(?:а|и)"
+     r"|един(?:ый|ое|ые)\s+полис)"),
+
+    # Улучшенный паттерн для голосовых файлов (catch filenames)
+    ("FILE_VOICE",
+     r"(?i)(?:запись\s+голоса|аудиозапись|голосовое\s+сообщение"
+     r"|call[-_\s]*recording|录音|voice[-_\s]note"
+     r"|\.(?:mp3|wav|ogg|m4a)(?:\?|\s|$)"
+     r"|[-_\s]voice[-_\s]|[-_\s]запись[-_\s]|\brecord_\w+)"),
 ]
 
 
@@ -815,6 +955,8 @@ class JSONProcessor:
         import json
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
+
+        # Извлекаем только строковые значения (без чисел)
         return self._extract_strings(data)
 
     def _extract_strings(self, obj: Any, separator: str = "\n") -> str:
@@ -825,6 +967,25 @@ class JSONProcessor:
             return separator.join(self._extract_strings(item, separator) for item in obj if isinstance(item, (str, dict, list)))
         elif isinstance(obj, dict):
             return separator.join(self._extract_strings(v, separator) for v in obj.values() if isinstance(v, (str, dict, list)))
+        return ""
+
+    def _extract_pairs(self, obj: Any, separator: str = "\n") -> str:
+        """Рекурсивно извлекает пары ключ-значение для детекции."""
+        if isinstance(obj, str):
+            return obj
+        elif isinstance(obj, (int, float)):
+            return str(obj)
+        elif isinstance(obj, list):
+            return separator.join(self._extract_pairs(item, separator) for item in obj)
+        elif isinstance(obj, dict):
+            parts = []
+            for k, v in obj.items():
+                if isinstance(v, (str, int, float)):
+                    # Сохраняем пару ключ: значение для детекции
+                    parts.append(f"{k}: {v}")
+                elif isinstance(v, (dict, list)):
+                    parts.append(self._extract_pairs(v, separator))
+            return separator.join(parts)
         return ""
 
     def anonymize_file(
@@ -838,25 +999,58 @@ class JSONProcessor:
         with open(input_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Рекурсивно анонимизируем все строки
-        anonymized_data = self._anonymize_obj(data, replacements)
+        # Собираем user_id/client_id отдельно
+        user_id_map = self._extract_user_ids(data)
+
+        # Рекурсивно анонимизируем с сохранением структуры
+        anonymized_data = self._anonymize_obj(data, replacements, user_id_map)
 
         # Сохраняем с форматированием
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(anonymized_data, f, ensure_ascii=False, indent=2)
 
-    def _anonymize_obj(self, obj: Any, replacements: dict[str, str]) -> Any:
+    def _extract_user_ids(self, obj: Any) -> dict[int, str]:
+        """Извлекает user_id/client_id значений для замены."""
+        user_ids = {}
+        counter = 1  # Счетчик плейсхолдеров
+
+        def extract_recursive(obj: Any) -> None:
+            nonlocal counter
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k in ('user_id', 'client_id') and isinstance(v, int):
+                        if v not in user_ids:
+                            label = "ID_ПОЛЬЗОВАТЕЛЯ" if k == 'user_id' else "ID_КЛИЕНТА"
+                            user_ids[v] = f"[{label}_{counter}]"
+                            counter += 1
+                    elif isinstance(v, (dict, list)):
+                        extract_recursive(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    extract_recursive(item)
+
+        extract_recursive(obj)
+        return user_ids
+
+    def _anonymize_obj(self, obj: Any, replacements: dict[str, str], user_id_map: dict[int, str] | None = None) -> Any:
         """Рекурсивно анонимизирует все строки в объекте."""
+        if user_id_map is None:
+            user_id_map = {}
+
         if isinstance(obj, str):
-            # Проверяем все варианты замены
+            # Применяем ВСЕ замены к строке (не выходим после первой!)
+            result = obj
             for original, placeholder in replacements.items():
-                if original in obj:
-                    return obj.replace(original, placeholder)
-            return obj
+                if original in result:
+                    result = result.replace(original, placeholder)
+            return result
+        elif isinstance(obj, int):
+            # Проверяем, есть ли это число в user_id_map
+            return user_id_map.get(obj, obj)
         elif isinstance(obj, list):
-            return [self._anonymize_obj(item, replacements) for item in obj]
+            return [self._anonymize_obj(item, replacements, user_id_map) for item in obj]
         elif isinstance(obj, dict):
-            return {k: self._anonymize_obj(v, replacements) for k, v in obj.items()}
+            return {k: self._anonymize_obj(v, replacements, user_id_map) for k, v in obj.items()}
         return obj
 
 
