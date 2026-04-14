@@ -5,6 +5,7 @@ ALgorithms:  NER (Natasha + Presidio/spaCy/stanza), Regex,
             K-anonymity, Differential privacy (Laplas).
 Formats:    PDF (pymupdf/fitz), DOCX (python-docx), XLSX (openpyxl),
             CSV (pandas), PNG/JPG (Tesseract OCR), TXT/plain.
+            Structured: JSON
 
 Deploy:
     pip install -r requirements.txt
@@ -800,6 +801,65 @@ class CSVProcessor:
         df.to_csv(output_path, index=False, sep=separator, encoding=encoding)
 
 
+
+class JSONProcessor:
+    """
+    Extract/Anonymize для JSON файлов.
+
+    Рекурсивно обходит все строковые значения в JSON,
+    анонимизирует их, сохраняет структуру.
+    """
+
+    def extract_text(self, path: str | Path) -> str:
+        """Извлекает все строковые значения из JSON."""
+        import json
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return self._extract_strings(data)
+
+    def _extract_strings(self, obj: Any, separator: str = "\n") -> str:
+        """Рекурсивно извлекает все строки из JSON."""
+        if isinstance(obj, str):
+            return obj
+        elif isinstance(obj, list):
+            return separator.join(self._extract_strings(item, separator) for item in obj if isinstance(item, (str, dict, list)))
+        elif isinstance(obj, dict):
+            return separator.join(self._extract_strings(v, separator) for v in obj.values() if isinstance(v, (str, dict, list)))
+        return ""
+
+    def anonymize_file(
+        self,
+        input_path:   str | Path,
+        output_path:  str | Path,
+        replacements: dict[str, str],
+    ) -> None:
+        """Анонимизирует JSON, сохраняя структуру."""
+        import json
+        with open(input_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Рекурсивно анонимизируем все строки
+        anonymized_data = self._anonymize_obj(data, replacements)
+
+        # Сохраняем с форматированием
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(anonymized_data, f, ensure_ascii=False, indent=2)
+
+    def _anonymize_obj(self, obj: Any, replacements: dict[str, str]) -> Any:
+        """Рекурсивно анонимизирует все строки в объекте."""
+        if isinstance(obj, str):
+            # Проверяем все варианты замены
+            for original, placeholder in replacements.items():
+                if original in obj:
+                    return obj.replace(original, placeholder)
+            return obj
+        elif isinstance(obj, list):
+            return [self._anonymize_obj(item, replacements) for item in obj]
+        elif isinstance(obj, dict):
+            return {k: self._anonymize_obj(v, replacements) for k, v in obj.items()}
+        return obj
+
+
 class ImageProcessor:
     """
     Extract/Anonymize для PNG/JPG изображений через Tesseract OCR.
@@ -913,6 +973,7 @@ class Depersonalizer:
         dp.anonymize_file("input.docx", "output_anon.docx")
         dp.anonymize_file("input.xlsx", "output_anon.xlsx")
         dp.anonymize_file("input.csv", "output_anon.csv")
+        dp.anonymize_file("data.json", "data_anon.json")
         dp.anonymize_file("screenshot.png", "screenshot_anon.png")
     """
 
@@ -936,6 +997,7 @@ class Depersonalizer:
         self._docx_proc  = DocxProcessor()   if _DOCX_OK      else None
         self._xlsx_proc  = ExcelProcessor()  if _OPENPYXL_OK  else None
         self._csv_proc   = CSVProcessor()    if _PANDAS_OK    else None
+        self._json_proc  = JSONProcessor()   if True          else None  # JSON всегда доступен
         self._image_proc = ImageProcessor()  if _PILLOW_OK and _TESSERACT_OK else None
 
     # ── Public API ──────────────────────────────────────────
@@ -980,7 +1042,7 @@ class Depersonalizer:
     ) -> Path:
         """
         Extract → Detect → Anonymize → Rebuild для файла.
-        Поддерживаемые форматы: .txt, .md, .log, .csv, .xlsx, .pdf, .docx, .png, .jpg, .jpeg.
+        Поддерживаемые форматы: .txt, .md, .log, .csv, .xlsx, .pdf, .docx, .json, .png, .jpg, .jpeg.
         Возвращает путь к анонимизированному файлу.
         """
         input_path  = Path(input_path)
@@ -1028,6 +1090,15 @@ class Depersonalizer:
                 input_path, output_path, self.tracker.mapping()
             )
 
+        elif suffix == ".json":
+            if not self._json_proc:
+                raise RuntimeError("JSONProcessor недоступен")
+            raw = self._json_proc.extract_text(input_path)
+            self.anonymize_text(raw)  # заполняем tracker
+            self._json_proc.anonymize_file(
+                input_path, output_path, self.tracker.mapping()
+            )
+
         elif suffix in (".png", ".jpg", ".jpeg"):
             if not self._image_proc:
                 raise RuntimeError("Pillow/pytesseract не установлены: pip install Pillow pytesseract")
@@ -1060,12 +1131,12 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Деперсонализация PII в файлах (PDF, DOCX, TXT, CSV, XLSX, PNG, JPG).",
-    )
+        description="Деперсонализация PII в файлах (PDF, DOCX, TXT, CSV, XLSX, JSON, PNG, JPG).",    
+        )
     parser.add_argument(
         "file",
         type=Path,
-        help="Путь к файлу для обработки (.txt, .pdf, .docx, .csv, .xlsx, .png, .jpg)",
+        help="Путь к файлу для обработки (.txt, .pdf, .docx, .csv, .xlsx, .json, .png, .jpg)",
     )
     parser.add_argument(
         "-o", "--output",

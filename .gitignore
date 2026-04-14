@@ -1,3 +1,4 @@
+.DS_Store
 cache/document_cache/*.json
 cache/serp_cache/*.json
 .~lock*
@@ -8,6 +9,8 @@ cache/serp_cache/*.json
 *.md
 .env
 .venv
+venv
 .history/**
+*.json
 
 !README.md

@@ -56,6 +56,13 @@ python -m spacy download en_core_web_sm
 
 # 4. Запустить демо
 python demo.py
+
+# 5. Запуск обработки файла
+#№ Если хотите JSON на выходе:
+python3 depersonalizer.py mock.json -o clean_mock.json
+
+#№ Или автоматически:
+python3 depersonalizer.py mock.json
 ```
 
 ---
